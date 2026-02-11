@@ -1,7 +1,7 @@
 #![feature(read_array)]
 use std::{
     fmt,
-    io::{Write, stdout, Read},
+    io::{Read, Write, stdout},
     net::{TcpListener, TcpStream},
 };
 
@@ -49,6 +49,7 @@ impl Ship {
 struct Board {
     ships: [Ship; 5],
     enemy_attacks: Attacks,
+    your_attacks: Attacks,
 }
 
 impl Board {
@@ -60,9 +61,30 @@ impl Board {
         Self {
             ships,
             enemy_attacks: Attacks::new(),
+            your_attacks: Attacks::new(),
         }
     }
-    fn attack(&mut self, x: u8, y: u8) -> u8 {
+    fn make_move(&mut self, con: &mut TcpStream) {
+        loop {
+            let x = get_pos("Please choose the x coordinate of your attack [1-10]");
+            let y = get_pos("Please choose the y coordinate of your attack [1-10]");
+
+            if self.your_attacks.move_exists(x, y) {
+                println!("Invalid coordinate, already attacked @ ({x}, {y})");
+                continue;
+            }
+            self.your_attacks.set_pending(x, y);
+
+            con.write_all(&[x, y])
+                .expect("Failed to send move to server");
+            println!("sent: {:?}", [x, y]);
+
+            break;
+        }
+    }
+    fn receive_move(&mut self, con: &mut TcpStream) {
+        let [x, y]: [u8; 2] = con.read_array().expect("Failed to get message from server");
+
         let mut hit = false;
         let mut sunk = false;
         assert!((1..=10).contains(&x) && (1..=10).contains(&y));
@@ -77,7 +99,7 @@ impl Board {
             }
         }
 
-        if sunk && self.ships.iter().all(Ship::sunk) {
+        let board_attack = if sunk && self.ships.iter().all(Ship::sunk) {
             Self::WIN
         } else if sunk {
             Self::SUNK
@@ -85,7 +107,14 @@ impl Board {
             Self::HIT
         } else {
             Self::MISS
+        };
+
+        if board_attack != Board::MISS {
+            self.enemy_attacks.set_pending(x, y);
+            self.enemy_attacks.update_pending(1);
         }
+        println!("Your ships:\n{}", self.enemy_attacks);
+        con.write_all(&[board_attack]).unwrap();
     }
 }
 
@@ -204,6 +233,7 @@ fn main() {
             stdin.read_line(&mut input).unwrap();
             let down = match &input.trim().to_lowercase()[..] {
                 "y" => true,
+
                 "n" => false,
                 i => {
                     println!("Invalid input \"{i}\"! Please try again");
@@ -248,13 +278,11 @@ fn main() {
         }
     }
 
-    let mut moveset = Attacks::new();
-
     // play first move if applicable:
     if first {
         println!("Our turn");
         con.write_all(&[4]).unwrap();
-        make_move(&mut con, &mut moveset);
+        board.make_move(&mut con);
     } else {
         println!("Enemy turn");
     }
@@ -265,34 +293,34 @@ fn main() {
         match status[0] {
             0 => {
                 println!("Miss!");
-                moveset.update_pending(2);
-                println!("{moveset}");
-                receive_move(&mut con, &mut board);
-                make_move(&mut con, &mut moveset);
+                board.your_attacks.update_pending(2);
+                println!("{}", board.your_attacks);
+                board.receive_move(&mut con);
+                board.make_move(&mut con);
             } // miss, em, your move
             1 => {
                 println!("Hit!");
-                moveset.update_pending(1);
-                println!("{moveset}");
-                receive_move(&mut con, &mut board);
-                make_move(&mut con, &mut moveset);
+                board.your_attacks.update_pending(1);
+                println!("{}", board.your_attacks);
+                board.receive_move(&mut con);
+                board.make_move(&mut con);
             } // hit, em, your move
             2 => {
                 println!("Sunk!");
-                moveset.update_pending(1);
-                println!("{moveset}");
-                receive_move(&mut con, &mut board);
-                make_move(&mut con, &mut moveset);
+                board.your_attacks.update_pending(1);
+                println!("{}", board.your_attacks);
+                board.receive_move(&mut con);
+                board.make_move(&mut con);
             } // sunk, em, your move
             3 => {
                 println!("Sunk, you win!");
-                moveset.update_pending(1);
-                println!("{moveset}");
+                board.your_attacks.update_pending(1);
+                println!("{}", board.your_attacks);
                 break;
             } // sunk, you win
             4 => {
-                receive_move(&mut con, &mut board);
-                make_move(&mut con, &mut moveset);
+                board.receive_move(&mut con);
+                board.make_move(&mut con);
             } // em, first move
             m => panic!("Invalid message from server: {m}"),
         }
@@ -310,35 +338,5 @@ fn get_pos(msg: &str) -> u8 {
                 println!("Invalid number: {input}. Input must be between 1 and 10");
             }
         }
-    }
-}
-
-fn receive_move(con: &mut TcpStream, board: &mut Board) {
-    let [x, y]: [u8; 2] = con.read_array().expect("Failed to get message from server");
-    let board_attack = board.attack(x, y);
-    if board_attack != Board::MISS {
-        board.enemy_attacks.set_pending(x, y);
-        board.enemy_attacks.update_pending(1);
-    }
-    println!("Your ships:\n{}", board.enemy_attacks);
-    con.write_all(&[board_attack]).unwrap();
-}
-
-fn make_move(con: &mut TcpStream, moveset: &mut Attacks) {
-    loop {
-        let x = get_pos("Please choose the x coordinate of your attack [1-10]");
-        let y = get_pos("Please choose the y coordinate of your attack [1-10]");
-
-        if moveset.move_exists(x, y) {
-            println!("Invalid coordinate, already attacked @ ({x}, {y})");
-            continue;
-        }
-        moveset.set_pending(x, y);
-
-        con.write_all(&[x, y])
-            .expect("Failed to send move to server");
-        println!("sent: {:?}", [x, y]);
-
-        break;
     }
 }
