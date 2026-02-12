@@ -6,6 +6,7 @@ use std::{
 
 use rand::random_bool;
 
+#[derive(Debug)]
 enum Status {
     Won,
     Loss,
@@ -61,8 +62,6 @@ struct Board {
 impl Board {
     pub const MISS: u8 = 0;
     pub const HIT: u8 = 1;
-    pub const SUNK: u8 = 2;
-    pub const WIN: u8 = 3;
     fn play_game(con: TcpStream, host: bool) -> Status {
         let mut ships: Vec<Ship> = Vec::new();
         for (name, len) in [
@@ -157,21 +156,27 @@ impl Board {
                     println!("Miss!");
                     b.update_pending(2);
                     Board::print_board(&b.your_attacks);
-                    b.receive_move();
+                    if let Err(loss) = b.receive_move() {
+                        return loss;
+                    }
                     b.make_move();
                 } // miss, em, your move
                 1 => {
                     println!("Hit!");
                     b.update_pending(1);
                     Board::print_board(&b.your_attacks);
-                    b.receive_move();
+                    if let Err(loss) = b.receive_move() {
+                        return loss;
+                    }
                     b.make_move();
                 } // hit, em, your move
                 2 => {
                     println!("Sunk!");
                     b.update_pending(1);
                     Board::print_board(&b.your_attacks);
-                    b.receive_move();
+                    if let Err(loss) = b.receive_move() {
+                        return loss;
+                    }
                     b.make_move();
                 } // sunk, em, your move
                 3 => {
@@ -181,7 +186,9 @@ impl Board {
                     return Status::Won;
                 } // sunk, you win
                 4 => {
-                    b.receive_move();
+                    if let Err(loss) = b.receive_move() {
+                        return loss;
+                    }
                     b.make_move();
                 } // em, first move
                 m => panic!("Invalid message from server: {m}"),
@@ -204,12 +211,11 @@ impl Board {
             self.con
                 .write_all(&[x, y])
                 .expect("Failed to send move to server");
-            println!("sent: {:?}", [x, y]);
 
             break;
         }
     }
-    fn receive_move(&mut self) {
+    fn receive_move(&mut self) -> Result<(), Status> {
         let [x, y]: [u8; 2] = self
             .con
             .read_array()
@@ -230,9 +236,8 @@ impl Board {
         }
 
         let board_attack = if sunk && self.ships.iter().all(Ship::sunk) {
-            Self::WIN
-        } else if sunk {
-            Self::SUNK
+            self.con.write_all(&[3]).unwrap();
+            return Err(Status::Loss);
         } else if hit {
             Self::HIT
         } else {
@@ -245,6 +250,7 @@ impl Board {
         println!("Your ships:");
         Self::print_board(&self.enemy_attacks);
         self.con.write_all(&[board_attack]).unwrap();
+        Ok(())
     }
     fn print_board(board: &[u8; 100]) {
         for line in 0..10 {
@@ -312,7 +318,8 @@ fn main() {
         }
     }
 
-    let _result = Board::play_game(con, host);
+    let result = Board::play_game(con, host);
+    println!("{result:?}");
 }
 
 fn get_pos(msg: &str) -> u8 {
