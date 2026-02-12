@@ -1,6 +1,5 @@
 #![feature(read_array)]
 use std::{
-    fmt,
     io::{Read, Write, stdout},
     net::{TcpListener, TcpStream},
 };
@@ -48,8 +47,9 @@ impl Ship {
 #[derive(Debug)]
 struct Board {
     ships: [Ship; 5],
-    enemy_attacks: Attacks,
-    your_attacks: Attacks,
+    your_attacks: [u8; 100],
+    enemy_attacks: [u8; 100],
+    pending_attack: (u8, u8),
 }
 
 impl Board {
@@ -60,8 +60,9 @@ impl Board {
     fn from_ships(ships: [Ship; 5]) -> Self {
         Self {
             ships,
-            enemy_attacks: Attacks::new(),
-            your_attacks: Attacks::new(),
+            your_attacks: [0; 100],
+            enemy_attacks: [0; 100],
+            pending_attack: (0, 0),
         }
     }
     fn make_move(&mut self, con: &mut TcpStream) {
@@ -69,11 +70,13 @@ impl Board {
             let x = get_pos("Please choose the x coordinate of your attack [1-10]");
             let y = get_pos("Please choose the y coordinate of your attack [1-10]");
 
-            if self.your_attacks.move_exists(x, y) {
+            if (x == self.pending_attack.0 && y == self.pending_attack.1)
+                || self.your_attacks[((x - 1) + (y - 1) * 10) as usize] != 0
+            {
                 println!("Invalid coordinate, already attacked @ ({x}, {y})");
                 continue;
             }
-            self.your_attacks.set_pending(x, y);
+            self.pending_attack = (x, y);
 
             con.write_all(&[x, y])
                 .expect("Failed to send move to server");
@@ -110,59 +113,28 @@ impl Board {
         };
 
         if board_attack != Board::MISS {
-            self.enemy_attacks.set_pending(x, y);
-            self.enemy_attacks.update_pending(1);
+            self.enemy_attacks[((x - 1) + (y - 1) * 10) as usize] = 1;
         }
-        println!("Your ships:\n{}", self.enemy_attacks);
+        println!("Your ships:");
+        Self::print_board(&self.enemy_attacks);
         con.write_all(&[board_attack]).unwrap();
     }
-}
-
-#[derive(Debug)]
-struct Attacks {
-    board: [u8; 100],
-    pending: (u8, u8),
-}
-
-impl Attacks {
-    fn new() -> Self {
-        Self {
-            board: [0; 100],
-            pending: (u8::MAX, u8::MAX),
-        }
-    }
-    fn update_pending(&mut self, worked: u8) {
-        let x = self.pending.0;
-        let y = self.pending.1;
-        assert!((1..=10).contains(&x) && (1..=10).contains(&y));
-        let idx = ((x - 1) + (y - 1) * 10) as usize;
-        self.board[idx] = worked;
-    }
-    fn set_pending(&mut self, x: u8, y: u8) {
-        self.pending = (x, y);
-    }
-    fn move_exists(&self, x: u8, y: u8) -> bool {
-        assert!((1..=10).contains(&x) && (1..=10).contains(&y));
-        let idx = ((x - 1) + (y - 1) * 10) as usize;
-        (x == self.pending.0 && y == self.pending.1) || self.board[idx] != 0
-    }
-}
-
-impl fmt::Display for Attacks {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn print_board(board: &[u8; 100]) {
         for line in 0..10 {
             for c in 0..10 {
-                let c = match self.board[line * 10 + c] {
+                let c = match board[line * 10 + c] {
                     0 => '.',
                     1 => 'X',
                     2 => '#',
                     _ => unreachable!(),
                 };
-                write!(f, "{c}")?;
+                print!("{c}");
             }
-            writeln!(f)?;
+            println!();
         }
-        Ok(())
+    }
+    fn update_pending(&mut self, attack_state: u8) {
+        self.your_attacks[((self.pending_attack.0 - 1) + (self.pending_attack.1 - 1) * 10) as usize] = attack_state;
     }
 }
 
@@ -293,29 +265,29 @@ fn main() {
         match status[0] {
             0 => {
                 println!("Miss!");
-                board.your_attacks.update_pending(2);
-                println!("{}", board.your_attacks);
+                board.update_pending(2);
+                Board::print_board(&board.your_attacks);
                 board.receive_move(&mut con);
                 board.make_move(&mut con);
             } // miss, em, your move
             1 => {
                 println!("Hit!");
-                board.your_attacks.update_pending(1);
-                println!("{}", board.your_attacks);
+                board.update_pending(1);
+                Board::print_board(&board.your_attacks);
                 board.receive_move(&mut con);
                 board.make_move(&mut con);
             } // hit, em, your move
             2 => {
                 println!("Sunk!");
-                board.your_attacks.update_pending(1);
-                println!("{}", board.your_attacks);
+                board.update_pending(1);
+                Board::print_board(&board.your_attacks);
                 board.receive_move(&mut con);
                 board.make_move(&mut con);
             } // sunk, em, your move
             3 => {
                 println!("Sunk, you win!");
-                board.your_attacks.update_pending(1);
-                println!("{}", board.your_attacks);
+                board.update_pending(1);
+                Board::print_board(&board.your_attacks);
                 break;
             } // sunk, you win
             4 => {
