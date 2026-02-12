@@ -136,6 +136,75 @@ impl Board {
     fn update_pending(&mut self, attack_state: u8) {
         self.your_attacks[((self.pending_attack.0 - 1) + (self.pending_attack.1 - 1) * 10) as usize] = attack_state;
     }
+    fn main_loop(mut self, host: bool, mut con: TcpStream) -> () {
+    // decide on which player goes first
+    let first;
+    if host {
+        first = random_bool(0.5);
+        con.write_all(&[u8::from(!first)])
+            .expect("Failed to send move to server");
+    } else {
+        println!("Waiting for server to say who goes first.");
+        let arr: [u8; 1] = con
+            .read_array()
+            .expect("Failed to get who goes first from server");
+        if arr[0] == 1 {
+            first = true;
+        } else if arr[0] == 0 {
+            first = false;
+        } else {
+            panic!("Server sent malformed data.");
+        }
+    }
+
+    // play first move if applicable:
+    if first {
+        println!("Our turn");
+        con.write_all(&[4]).unwrap();
+        self.make_move(&mut con);
+    } else {
+        println!("Enemy turn");
+    }
+
+    loop {
+        let status: [u8; 1] = con.read_array().expect("Failed to get message from server");
+
+        match status[0] {
+            0 => {
+                println!("Miss!");
+                self.update_pending(2);
+                Board::print_board(&self.your_attacks);
+                self.receive_move(&mut con);
+                self.make_move(&mut con);
+            } // miss, em, your move
+            1 => {
+                println!("Hit!");
+                self.update_pending(1);
+                Board::print_board(&self.your_attacks);
+                self.receive_move(&mut con);
+                self.make_move(&mut con);
+            } // hit, em, your move
+            2 => {
+                println!("Sunk!");
+                self.update_pending(1);
+                Board::print_board(&self.your_attacks);
+                self.receive_move(&mut con);
+                self.make_move(&mut con);
+            } // sunk, em, your move
+            3 => {
+                println!("Sunk, you win!");
+                self.update_pending(1);
+                Board::print_board(&self.your_attacks);
+                break;
+            } // sunk, you win
+            4 => {
+                self.receive_move(&mut con);
+                self.make_move(&mut con);
+            } // em, first move
+            m => panic!("Invalid message from server: {m}"),
+        }
+    }
+    }
 }
 
 fn main() {
@@ -158,7 +227,7 @@ fn main() {
     }
 
     // establish connection
-    let mut con;
+    let con;
     if host {
         // wait for connection to host
         let listener = TcpListener::bind("0.0.0.0:0").expect("Failed to bind to tcp port");
@@ -228,75 +297,10 @@ fn main() {
         }
     }
 
-    let mut board = Board::from_ships(ships.try_into().unwrap());
+    let board = Board::from_ships(ships.try_into().unwrap());
 
-    // decide on which player goes first
-    let first;
-    if host {
-        first = random_bool(0.5);
-        con.write_all(&[u8::from(!first)])
-            .expect("Failed to send move to server");
-    } else {
-        println!("Waiting for server to say who goes first.");
-        let arr: [u8; 1] = con
-            .read_array()
-            .expect("Failed to get who goes first from server");
-        if arr[0] == 1 {
-            first = true;
-        } else if arr[0] == 0 {
-            first = false;
-        } else {
-            panic!("Server sent malformed data.");
-        }
-    }
 
-    // play first move if applicable:
-    if first {
-        println!("Our turn");
-        con.write_all(&[4]).unwrap();
-        board.make_move(&mut con);
-    } else {
-        println!("Enemy turn");
-    }
-
-    loop {
-        let status: [u8; 1] = con.read_array().expect("Failed to get message from server");
-
-        match status[0] {
-            0 => {
-                println!("Miss!");
-                board.update_pending(2);
-                Board::print_board(&board.your_attacks);
-                board.receive_move(&mut con);
-                board.make_move(&mut con);
-            } // miss, em, your move
-            1 => {
-                println!("Hit!");
-                board.update_pending(1);
-                Board::print_board(&board.your_attacks);
-                board.receive_move(&mut con);
-                board.make_move(&mut con);
-            } // hit, em, your move
-            2 => {
-                println!("Sunk!");
-                board.update_pending(1);
-                Board::print_board(&board.your_attacks);
-                board.receive_move(&mut con);
-                board.make_move(&mut con);
-            } // sunk, em, your move
-            3 => {
-                println!("Sunk, you win!");
-                board.update_pending(1);
-                Board::print_board(&board.your_attacks);
-                break;
-            } // sunk, you win
-            4 => {
-                board.receive_move(&mut con);
-                board.make_move(&mut con);
-            } // em, first move
-            m => panic!("Invalid message from server: {m}"),
-        }
-    }
+    board.main_loop(host, con);
 }
 
 fn get_pos(msg: &str) -> u8 {
