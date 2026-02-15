@@ -1,10 +1,19 @@
 #![feature(read_array)]
 use std::{
     io::{Read, Write, stdout},
-    net::{TcpListener, TcpStream},
+    net::{SocketAddr, TcpListener, TcpStream},
+    time::Duration,
 };
 
+use crossterm::event::{self, KeyCode};
 use rand::random_bool;
+use ratatui::{
+    Frame,
+    layout::{Constraint, Layout, Offset, Position},
+    style::{Modifier, Style, palette::tailwind},
+    text::Line,
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+};
 
 #[derive(Debug)]
 enum Status {
@@ -273,15 +282,215 @@ impl Board {
     }
 }
 
+enum Application<'a> {
+    Menu(Vec<ListItem<'a>>, ListState, Layout),
+    Host(TcpListener),
+    ConnectToHost(String, usize, String),
+    PlaceShips(TcpStream),
+    Help,
+}
+
+impl<'a> Application<'a> {
+    pub fn new() -> Self {
+        use ratatui::prelude::Stylize;
+        let list_items = ["Host Game", "Join Game", "Help", "Exit"]
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| {
+                ListItem::new(s).bg(if i % 2 == 0 {
+                    tailwind::CYAN.c500
+                } else {
+                    tailwind::GRAY.c500
+                })
+            })
+            .collect();
+
+        Self::Menu(
+            list_items,
+            ListState::default().with_selected(Some(0)),
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]),
+        )
+    }
+    pub fn render(&mut self, frame: &mut Frame) {
+        match self {
+            Self::Menu(list_items, ls, lay) => {
+                let a = lay.areas::<2>(frame.area())[0];
+                let list = List::new(list_items.clone())
+                    .block(
+                        Block::new()
+                            .title(Line::raw("Main Menu").centered())
+                            .borders(Borders::all()),
+                    )
+                    .highlight_style(
+                        Style::new()
+                            .bg(tailwind::SLATE.c800)
+                            .add_modifier(Modifier::BOLD),
+                    );
+
+                frame.render_stateful_widget(list, a, ls)
+            }
+            Self::Host(listener) => {
+                frame.render_widget(
+                    Paragraph::new("").block(Block::bordered().title("Hosting instance")),
+                    frame.area(),
+                );
+
+                frame.render_widget(
+                    Paragraph::new(format!(
+                        "Waiting for connection on {}",
+                        listener.local_addr().unwrap()
+                    ))
+                    .alignment(ratatui::layout::HorizontalAlignment::Center),
+                    frame.area().centered_vertically(Constraint::Length(1)),
+                );
+            }
+            Self::ConnectToHost(input, cursor, connection) => {
+                let l = Layout::horizontal([
+                    Constraint::Percentage(25),
+                    Constraint::Min(35),
+                    Constraint::Percentage(25),
+                ]);
+                frame.render_widget(
+                    Paragraph::new("").block(Block::bordered().title("Connect to Host")),
+                    frame.area(),
+                );
+                let input_area =
+                    frame.area().layout::<3>(&l)[1].centered_vertically(Constraint::Length(3));
+                frame.render_widget(
+                    Paragraph::new(input.as_str()).block(Block::bordered().title("Peer Address")),
+                    input_area,
+                );
+                frame.render_widget(
+                    Paragraph::new(connection.as_str()),
+                    input_area.offset(Offset::new(1, 3)),
+                );
+                frame.set_cursor_position(Position::new(
+                    input_area.x + *cursor as u16 + 1,
+                    input_area.y + 1,
+                ));
+            }
+            Self::PlaceShips(_stream) => {
+                todo!();
+            },
+            Self::Help => {
+                frame.render_widget(
+                    Paragraph::new("").block(Block::bordered().title("Help")),
+                    frame.area(),
+                );
+                frame.render_widget(
+                    Paragraph::new(
+                        "HELP GOES HERE"
+                    )
+                    .alignment(ratatui::layout::HorizontalAlignment::Center),
+                    frame.area().centered_vertically(Constraint::Length(1)),
+                );
+
+            },
+        }
+    }
+}
+
 fn main() {
-    let stdin = std::io::stdin();
+    let mut term = ratatui::init();
+    let mut app = Application::new();
+
+    loop {
+        term.draw(|frame: &mut Frame| app.render(frame)).unwrap();
+
+        if event::poll(Duration::from_millis(250)).unwrap() {
+            if let Application::Host(ref listener) = app {
+                if let Ok((stream, _)) = listener.accept() {
+                    app = Application::PlaceShips(stream);
+                }
+            }
+            if let event::Event::Key(key) = event::read().unwrap() {
+                if key.code == KeyCode::Esc {
+                    break;
+                }
+                if let Application::Menu(_, ref mut ls, _) = app {
+                    match key.code {
+                        KeyCode::Down => ls.select_next(),
+                        KeyCode::Up => ls.select_previous(),
+                        KeyCode::Enter if matches!(ls.selected(), Some(0)) => {
+                            let listener =  TcpListener::bind("0.0.0.0:0")
+                                    .expect("TODO: implement error handling here");
+                            listener.set_nonblocking(true).expect("Failed to set nonblocking mode on TcpListener");
+                            app = Application::Host(
+                               listener,
+                            );
+                        }
+                        KeyCode::Enter if matches!(ls.selected(), Some(1)) => {
+                            app = Application::ConnectToHost(String::new(), 0, String::new());
+                        }
+                        KeyCode::Enter if matches!(ls.selected(), Some(2)) => {
+                            app = Application::Help;
+                        }
+                        KeyCode::Enter if matches!(ls.selected(), Some(3)) => {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                use std::str::FromStr;
+                if let Application::ConnectToHost(ref mut s, ref mut cursor, ref mut connection) =
+                    app
+                {
+                    match key.code {
+                        KeyCode::Left => {
+                            *cursor = cursor.saturating_sub(1);
+                        }
+                        KeyCode::Right => *cursor = (*cursor + 1).min(s.chars().count()),
+                        KeyCode::Backspace => {
+                            if *cursor != 0 {
+                                *s = s
+                                    .chars()
+                                    .take(*cursor - 1)
+                                    .chain(s.chars().skip(*cursor))
+                                    .collect();
+                                *cursor = cursor.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Char(v) => {
+                            s.insert(
+                                s.char_indices()
+                                    .map(|(i, _)| i)
+                                    .nth(*cursor)
+                                    .unwrap_or(s.len()),
+                                v,
+                            );
+                            *cursor = (*cursor + 1).min(s.chars().count());
+                        }
+                        KeyCode::Enter if !s.is_empty() => {
+                            if let Ok(addr) = SocketAddr::from_str(&s) {
+                                *connection = format!("Attempting to connect to: {}", addr);
+                                match TcpStream::connect(addr) {
+                                    Ok(con) => {
+                                        app = Application::PlaceShips(con);
+                                    }
+                                    Err(e) => {
+                                        *connection =
+                                            format!("Failed to connect to: {} - {e}", addr);
+                                    }
+                                }
+                            } else {
+                                *connection = format!("Invalid address!");
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    ratatui::restore();
+    return;
 
     let mut host = false;
     // decide on hosting or not
     loop {
         println!("Do you want to host or join a battleships game? [h/j]");
         let mut input = String::new();
-        stdin.read_line(&mut input).unwrap();
+        std::io::stdin().read_line(&mut input).unwrap();
         match &input.trim().to_lowercase()[..] {
             "h" => {
                 host = true;
@@ -308,7 +517,7 @@ fn main() {
             print!("Enter address of server you'd like to connect to: ");
             stdout().flush().unwrap();
             let mut input = String::new();
-            stdin.read_line(&mut input).unwrap();
+            std::io::stdin().read_line(&mut input).unwrap();
             let Ok(c) = TcpStream::connect(input.trim()) else {
                 println!("Failed to join to server: {}", input.trim());
                 continue;
