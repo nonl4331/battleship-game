@@ -7,12 +7,12 @@ use std::{
 
 use crossterm::event::{self, KeyCode};
 use rand::random_bool;
-use ratatui::{
-    Frame,
-};
+use ratatui::Frame;
 
 mod gui;
 use gui::Application;
+
+use crate::gui::ShipPlacement;
 
 #[derive(Debug)]
 enum Status {
@@ -281,7 +281,6 @@ impl Board {
     }
 }
 
-
 fn main() {
     let mut term = ratatui::init();
     let mut app = Application::new();
@@ -292,24 +291,61 @@ fn main() {
         if event::poll(Duration::from_millis(250)).unwrap() {
             if let Application::Host(ref listener) = app {
                 if let Ok((stream, _)) = listener.accept() {
-                    app = Application::PlaceShips(stream);
+                    app = Application::PlaceShips(stream, ShipPlacement::new(5, [false; 100]));
                 }
             }
             if let event::Event::Key(key) = event::read().unwrap() {
                 if key.code == KeyCode::Esc {
                     break;
                 }
+                if let Application::PlaceShips(_, ref mut ship) = app {
+                    match key.code {
+                        KeyCode::Down if ship.valid(ship.pos.0, ship.pos.1 + 1, ship.rotated) => {
+                            ship.pos.1 += 1;
+                        }
+                        KeyCode::Up
+                            if ship.valid(
+                                ship.pos.0,
+                                ship.pos.1.saturating_sub(1),
+                                ship.rotated,
+                            ) =>
+                        {
+                            ship.pos.1 = ship.pos.1.saturating_sub(1);
+                        }
+                        KeyCode::Left
+                            if ship.valid(
+                                ship.pos.0.saturating_sub(1),
+                                ship.pos.1,
+                                ship.rotated,
+                            ) =>
+                        {
+                            ship.pos.0 = ship.pos.0.saturating_sub(1);
+                        }
+                        KeyCode::Right if ship.valid(ship.pos.0 + 1, ship.pos.1, ship.rotated) => {
+                            ship.pos.0 += 1;
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R')
+                            if ship.valid(ship.pos.0, ship.pos.1, !ship.rotated) =>
+                        {
+                            ship.rotated = !ship.rotated;
+                        }
+                        KeyCode::Enter => {
+                            todo!();
+                        },
+                        _ => {}
+                    }
+                }
                 if let Application::Menu(_, ref mut ls, _) = app {
                     match key.code {
                         KeyCode::Down => ls.select_next(),
                         KeyCode::Up => ls.select_previous(),
                         KeyCode::Enter if matches!(ls.selected(), Some(0)) => {
-                            let listener =  TcpListener::bind("0.0.0.0:0")
-                                    .expect("TODO: implement error handling here");
-                            listener.set_nonblocking(true).expect("Failed to set nonblocking mode on TcpListener");
-                            app = Application::Host(
-                               listener,
-                            );
+                            let listener = TcpListener::bind("0.0.0.0:0")
+                                .expect("TODO: implement error handling here");
+                            listener
+                                .set_nonblocking(true)
+                                .expect("Failed to set nonblocking mode on TcpListener");
+                            app = Application::Host(listener);
                         }
                         KeyCode::Enter if matches!(ls.selected(), Some(1)) => {
                             app = Application::ConnectToHost(String::new(), 0, String::new());
@@ -357,7 +393,10 @@ fn main() {
                                 *connection = format!("Attempting to connect to: {}", addr);
                                 match TcpStream::connect(addr) {
                                     Ok(con) => {
-                                        app = Application::PlaceShips(con);
+                                        app = Application::PlaceShips(
+                                            con,
+                                            ShipPlacement::new(5, [false; 100]),
+                                        );
                                     }
                                     Err(e) => {
                                         *connection =

@@ -1,19 +1,18 @@
-use std::{
-    net::{TcpListener, TcpStream},
-};
+use std::net::{TcpListener, TcpStream};
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Offset, Position},
-    style::{Modifier, Style, palette::tailwind},
-    text::Line,
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    buffer::Buffer,
+    layout::{Constraint, Layout, Offset, Position, Rect},
+    style::{Modifier, Style, Stylize, palette::tailwind},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
 pub enum Application<'a> {
     Menu(Vec<ListItem<'a>>, ListState, Layout),
     Host(TcpListener),
     ConnectToHost(String, usize, String),
-    PlaceShips(TcpStream),
+    PlaceShips(TcpStream, ShipPlacement),
     Help,
 }
 
@@ -96,27 +95,87 @@ impl<'a> Application<'a> {
                     input_area.y + 1,
                 ));
             }
-            Self::PlaceShips(_stream) => {
+            Self::PlaceShips(_stream, ship) => {
                 frame.render_widget(
                     Paragraph::new("").block(Block::bordered().title("Game")),
                     frame.area(),
                 );
-                unimplemented!()
-            },
+                //frame.render_widget(ship.table(), frame.area().centered(Constraint::Length(30), Constraint::Length(30)));
+                frame.render_widget(ship, frame.area());
+            }
             Self::Help => {
                 frame.render_widget(
                     Paragraph::new("").block(Block::bordered().title("Help")),
                     frame.area(),
                 );
                 frame.render_widget(
-                    Paragraph::new(
-                        "HELP GOES HERE"
-                    )
-                    .alignment(ratatui::layout::HorizontalAlignment::Center),
+                    Paragraph::new("HELP GOES HERE")
+                        .alignment(ratatui::layout::HorizontalAlignment::Center),
                     frame.area().centered_vertically(Constraint::Length(1)),
                 );
+            }
+        }
+    }
+}
 
-            },
+pub struct ShipPlacement {
+    pub pos: (usize, usize),
+    pub length: usize,
+    pub rotated: bool,
+    occupied: [bool; 100],
+}
+
+impl ShipPlacement {
+    pub fn new(length: usize, occupied: [bool; 100]) -> Self {
+        Self {
+            pos: (0, 0),
+            length,
+            rotated: false,
+            occupied,
+        }
+    }
+    pub fn valid(&self, x: usize, y: usize, rotated: bool) -> bool {
+        (!rotated && x + self.length <= 10 && y < 10)
+            || (rotated && y + self.length <= 10 && x < 10)
+    }
+    pub fn inship(&self, x: usize, y: usize) -> bool {
+        (!self.rotated && x >= self.pos.0 && x - self.pos.0 < self.length && self.pos.1 == y)
+            || (self.rotated && y >= self.pos.1 && y - self.pos.1 < self.length && self.pos.0 == x)
+    }
+}
+
+impl Widget for &mut ShipPlacement {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        match (area.width, area.height) {
+            (12.., 12..) => {
+                let space = area.centered(Constraint::Length(10), Constraint::Length(10));
+                Block::new()
+                    .borders(Borders::all())
+                    .title("Place Ship")
+                    .render(
+                        area.centered(Constraint::Length(12), Constraint::Length(12)),
+                        buf,
+                    );
+                for line in 0..10 {
+                    let mut spans = Vec::new();
+                    for col in 0..10 {
+                        let mut colour = tailwind::WHITE;
+                        if col == self.pos.0 && line == self.pos.1 {
+                            colour = tailwind::GREEN.c500;
+                        } else if self.inship(col, line) {
+                            colour = tailwind::GREEN.c900;
+                        }
+                        let idx = col + line * 10;
+                        if self.occupied[idx] {
+                            spans.push(Span::raw("X").fg(colour));
+                        } else {
+                            spans.push(Span::raw("•").fg(colour));
+                        }
+                    }
+                    buf.set_line(space.x, space.y + line as u16, &Line::from(spans), 21);
+                }
+            }
+            _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
         }
     }
 }
