@@ -1,21 +1,16 @@
 #![feature(read_array)]
 use std::{
-    io::{Read, Write, stdout},
     net::{SocketAddr, TcpListener, TcpStream},
     time::Duration,
 };
 
 use crossterm::event::{self, KeyCode};
-use rand::random_bool;
 use ratatui::Frame;
 
-mod gui;
 mod game;
+mod gui;
 use game::*;
 use gui::Application;
-
-use crate::gui::ShipPlacement;
-
 
 fn main() {
     let mut term = ratatui::init();
@@ -177,4 +172,3 @@ fn main() {
     }
     ratatui::restore();
 }
-

@@ -186,15 +186,12 @@ impl ShipPlacement {
                 *e = true;
             }
         }
-        return Some(
-            Ship::create_with_pos_and_rotation(
-                self.pos.0 as u8,
-                self.pos.1 as u8,
-                self.length as u8,
-                self.rotated,
-            )
-            .unwrap(),
-        );
+        return Some(Ship::create_with_pos_and_rotation(
+            self.pos.0,
+            self.pos.1,
+            self.length,
+            self.rotated,
+        ));
     }
 }
 
