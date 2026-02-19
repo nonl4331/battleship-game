@@ -39,12 +39,8 @@ impl Ship {
         false
     }
     fn create_with_pos_and_rotation(x: u8, y: u8, len: u8, down: bool) -> Option<Self> {
-        if !((1..=10).contains(&x) && (1..=10).contains(&y) && len > 0) {
-            return None;
-        }
-
         let mut pos = Vec::new();
-        let idx = ((x - 1) + (y - 1) * 10) as usize;
+        let idx = (x + y * 10) as usize;
 
         for offset in 0..(len as usize) {
             if down {

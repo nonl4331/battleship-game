@@ -214,13 +214,16 @@ impl Widget for &ShipPlacement {
                 for line in 0..10 {
                     let mut spans = Vec::new();
                     for col in 0..10 {
+                        let idx = col + line * 10;
                         let mut colour = tailwind::WHITE;
+                        if self.occupied[idx] {
+                            colour = tailwind::RED.c500;
+                        }
                         if col == self.pos.0 && line == self.pos.1 {
                             colour = tailwind::GREEN.c500;
                         } else if self.inship(col, line) {
                             colour = tailwind::GREEN.c900;
                         }
-                        let idx = col + line * 10;
                         if self.occupied[idx] {
                             spans.push(Span::raw("X").fg(colour));
                         } else {
