@@ -129,11 +129,11 @@ impl<'a> Application<'a> {
         Self::PlaceShips(
             con,
             vec![
-                ShipPlacement::new(5, [false; 100]),
-                ShipPlacement::new(4, [false; 100]),
-                ShipPlacement::new(3, [false; 100]),
-                ShipPlacement::new(3, [false; 100]),
                 ShipPlacement::new(2, [false; 100]),
+                ShipPlacement::new(3, [false; 100]),
+                ShipPlacement::new(3, [false; 100]),
+                ShipPlacement::new(4, [false; 100]),
+                ShipPlacement::new(5, [false; 100]),
             ],
             Vec::new(),
             [false; 100],
@@ -232,6 +232,17 @@ impl Widget for &ShipPlacement {
                     }
                     buf.set_line(space.x, space.y + line as u16, &Line::from(spans), 21);
                 }
+            }
+            _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
+        }
+    }
+}
+
+impl Widget for &Board {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        match (area.width, area.height) {
+            (23.., 14..) => {
+                todo!();
             }
             _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
         }
