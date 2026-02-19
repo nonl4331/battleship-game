@@ -103,11 +103,10 @@ impl<'a> Application<'a> {
                     Paragraph::new("").block(Block::bordered().title("Game")),
                     frame.area(),
                 );
-                //frame.render_widget(ship.table(), frame.area().centered(Constraint::Length(30), Constraint::Length(30)));
                 frame.render_widget(ship_placements.last().unwrap(), frame.area());
             }
-            Self::Game(_) => {
-                todo!();
+            Self::Game(board) => {
+                frame.render_widget(&*board, frame.area());
             }
             Self::Help => {
                 frame.render_widget(
@@ -242,7 +241,49 @@ impl Widget for &Board {
     fn render(self, area: Rect, buf: &mut Buffer) {
         match (area.width, area.height) {
             (23.., 14..) => {
-                todo!();
+                let space = area.centered(Constraint::Length(21), Constraint::Length(10));
+                // enemy -> you
+                for line in 0..10 {
+                    let mut spans = Vec::new();
+                    for col in 0..10 {
+                        let idx = col + line * 10;
+                        let mut is_ship = false;
+                        if self.enemy_attacks[idx] == Board::HIT {
+                            spans.push(Span::raw("X").fg(tailwind::RED.c500));
+                        } else {
+                            for ship in &self.ships {
+                                if let Some(_) = ship.pos.iter().position(|&i| i == idx) {
+                                    is_ship = true;
+                                    spans.push(Span::raw("X").fg(tailwind::WHITE));
+                                }
+                            }
+                            if !is_ship {
+                                spans.push(Span::raw("•").fg(tailwind::WHITE));
+                            }
+                        }
+                    }
+                    buf.set_line(space.x, space.y + line as u16, &Line::from(spans), 21);
+                }
+
+                // you -> enemy
+                for line in 0..10 {
+                    let mut spans = Vec::new();
+                    for col in 0..10 {
+                        let idx = col + line * 10;
+                        match self.your_attacks[idx] {
+                            1 => {
+                                spans.push(Span::raw("X").fg(tailwind::RED.c500));
+                            }
+                            2 => {
+                                spans.push(Span::raw("#").fg(tailwind::GRAY.c500));
+                            }
+                            _ => {
+                                spans.push(Span::raw("•").fg(tailwind::WHITE));
+                            }
+                        }
+                    }
+                    buf.set_line(space.x + 11, space.y + line as u16, &Line::from(spans), 21);
+                }
             }
             _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
         }
