@@ -8,11 +8,14 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget},
 };
+
+use crate::{Board, Ship};
 pub enum Application<'a> {
     Menu(Vec<ListItem<'a>>, ListState, Layout),
     Host(TcpListener),
     ConnectToHost(String, usize, String),
-    PlaceShips(TcpStream, ShipPlacement),
+    PlaceShips(TcpStream, Vec<ShipPlacement>, Vec<Ship>, [bool; 100]),
+    Game(Board),
     Help,
 }
 
@@ -95,13 +98,16 @@ impl<'a> Application<'a> {
                     input_area.y + 1,
                 ));
             }
-            Self::PlaceShips(_stream, ship) => {
+            Self::PlaceShips(_stream, ship_placements, _ships, _) => {
                 frame.render_widget(
                     Paragraph::new("").block(Block::bordered().title("Game")),
                     frame.area(),
                 );
                 //frame.render_widget(ship.table(), frame.area().centered(Constraint::Length(30), Constraint::Length(30)));
-                frame.render_widget(ship, frame.area());
+                frame.render_widget(ship_placements.last().unwrap(), frame.area());
+            }
+            Self::Game(_) => {
+                todo!();
             }
             Self::Help => {
                 frame.render_widget(
@@ -118,11 +124,28 @@ impl<'a> Application<'a> {
     }
 }
 
+impl<'a> Application<'a> {
+    pub fn place_ships(con: TcpStream) -> Self {
+        Self::PlaceShips(
+            con,
+            vec![
+                ShipPlacement::new(5, [false; 100]),
+                ShipPlacement::new(4, [false; 100]),
+                ShipPlacement::new(3, [false; 100]),
+                ShipPlacement::new(3, [false; 100]),
+                ShipPlacement::new(2, [false; 100]),
+            ],
+            Vec::new(),
+            [false; 100],
+        )
+    }
+}
+
 pub struct ShipPlacement {
     pub pos: (usize, usize),
     pub length: usize,
     pub rotated: bool,
-    occupied: [bool; 100],
+    pub occupied: [bool; 100],
 }
 
 impl ShipPlacement {
@@ -142,9 +165,41 @@ impl ShipPlacement {
         (!self.rotated && x >= self.pos.0 && x - self.pos.0 < self.length && self.pos.1 == y)
             || (self.rotated && y >= self.pos.1 && y - self.pos.1 < self.length && self.pos.0 == x)
     }
+    pub fn create_ship(&self, other: &mut [bool; 100]) -> Option<Ship> {
+        let idx = self.pos.0 + 10 * self.pos.1;
+        if !self.valid(self.pos.0, self.pos.1, self.rotated) {
+            return None;
+        }
+        if self.rotated {
+            for offset in 0..self.length {
+                if other[idx + 10 * offset] {
+                    return None;
+                }
+            }
+            for offset in 0..self.length {
+                other[idx + 10 * offset] = true;
+            }
+        } else {
+            if other[idx..idx + self.length].iter().any(|f| *f) {
+                return None;
+            }
+            for e in &mut other[idx..idx + self.length] {
+                *e = true;
+            }
+        }
+        return Some(
+            Ship::create_with_pos_and_rotation(
+                self.pos.0 as u8,
+                self.pos.1 as u8,
+                self.length as u8,
+                self.rotated,
+            )
+            .unwrap(),
+        );
+    }
 }
 
-impl Widget for &mut ShipPlacement {
+impl Widget for &ShipPlacement {
     fn render(self, area: Rect, buf: &mut Buffer) {
         match (area.width, area.height) {
             (12.., 12..) => {

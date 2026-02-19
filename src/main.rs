@@ -20,7 +20,7 @@ enum Status {
     Loss,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Ship {
     pub pos: Vec<usize>,
 }
@@ -291,50 +291,82 @@ fn main() {
         if event::poll(Duration::from_millis(250)).unwrap() {
             if let Application::Host(ref listener) = app {
                 if let Ok((stream, _)) = listener.accept() {
-                    app = Application::PlaceShips(stream, ShipPlacement::new(5, [false; 100]));
+                    app = Application::place_ships(stream);
                 }
             }
             if let event::Event::Key(key) = event::read().unwrap() {
                 if key.code == KeyCode::Esc {
                     break;
                 }
-                if let Application::PlaceShips(_, ref mut ship) = app {
-                    match key.code {
-                        KeyCode::Down if ship.valid(ship.pos.0, ship.pos.1 + 1, ship.rotated) => {
-                            ship.pos.1 += 1;
+                take_mut::take(&mut app, |app| {
+                    if let Application::PlaceShips(con, mut placements, mut ships, mut grid) = app {
+                        let ship = placements.last_mut().unwrap();
+                        match key.code {
+                            KeyCode::Down
+                                if ship.valid(ship.pos.0, ship.pos.1 + 1, ship.rotated) =>
+                            {
+                                ship.pos.1 += 1;
+                            }
+                            KeyCode::Up
+                                if ship.valid(
+                                    ship.pos.0,
+                                    ship.pos.1.saturating_sub(1),
+                                    ship.rotated,
+                                ) =>
+                            {
+                                ship.pos.1 = ship.pos.1.saturating_sub(1);
+                            }
+                            KeyCode::Left
+                                if ship.valid(
+                                    ship.pos.0.saturating_sub(1),
+                                    ship.pos.1,
+                                    ship.rotated,
+                                ) =>
+                            {
+                                ship.pos.0 = ship.pos.0.saturating_sub(1);
+                            }
+                            KeyCode::Right
+                                if ship.valid(ship.pos.0 + 1, ship.pos.1, ship.rotated) =>
+                            {
+                                ship.pos.0 += 1;
+                            }
+                            KeyCode::Char('r') | KeyCode::Char('R')
+                                if ship.valid(ship.pos.0, ship.pos.1, !ship.rotated) =>
+                            {
+                                ship.rotated = !ship.rotated;
+                            }
+                            KeyCode::Enter => {
+                                if let Some(ship) = ship.create_ship(&mut grid) {
+                                    ships.push(ship);
+                                    placements.pop();
+                                    if ships.len() != 5 - placements.len() {
+                                        panic!("{} | {}", ships.len(), placements.len());
+                                    };
+                                    if placements.is_empty() {
+                                        return Application::Game(Board {
+                                            con,
+                                            ships: ships
+                                                .iter()
+                                                .cloned()
+                                                .collect::<Vec<Ship>>()
+                                                .try_into()
+                                                .unwrap(),
+                                            your_attacks: [0; 100],
+                                            enemy_attacks: [0; 100],
+                                            pending_attack: (0, 0),
+                                        });
+                                    } else {
+                                        placements.last_mut().unwrap().occupied = grid.clone();
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
-                        KeyCode::Up
-                            if ship.valid(
-                                ship.pos.0,
-                                ship.pos.1.saturating_sub(1),
-                                ship.rotated,
-                            ) =>
-                        {
-                            ship.pos.1 = ship.pos.1.saturating_sub(1);
-                        }
-                        KeyCode::Left
-                            if ship.valid(
-                                ship.pos.0.saturating_sub(1),
-                                ship.pos.1,
-                                ship.rotated,
-                            ) =>
-                        {
-                            ship.pos.0 = ship.pos.0.saturating_sub(1);
-                        }
-                        KeyCode::Right if ship.valid(ship.pos.0 + 1, ship.pos.1, ship.rotated) => {
-                            ship.pos.0 += 1;
-                        }
-                        KeyCode::Char('r') | KeyCode::Char('R')
-                            if ship.valid(ship.pos.0, ship.pos.1, !ship.rotated) =>
-                        {
-                            ship.rotated = !ship.rotated;
-                        }
-                        KeyCode::Enter => {
-                            todo!();
-                        },
-                        _ => {}
+                        Application::PlaceShips(con, placements, ships, grid)
+                    } else {
+                        app
                     }
-                }
+                });
                 if let Application::Menu(_, ref mut ls, _) = app {
                     match key.code {
                         KeyCode::Down => ls.select_next(),
@@ -393,10 +425,7 @@ fn main() {
                                 *connection = format!("Attempting to connect to: {}", addr);
                                 match TcpStream::connect(addr) {
                                     Ok(con) => {
-                                        app = Application::PlaceShips(
-                                            con,
-                                            ShipPlacement::new(5, [false; 100]),
-                                        );
+                                        app = Application::place_ships(con);
                                     }
                                     Err(e) => {
                                         *connection =
