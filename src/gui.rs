@@ -17,6 +17,7 @@ pub enum Application<'a> {
     PlaceShips(TcpStream, Vec<ShipPlacement>, Vec<Ship>, [bool; 100]),
     Game(Board),
     Help,
+    Break,
 }
 
 impl<'a> Application<'a> {
@@ -119,6 +120,7 @@ impl<'a> Application<'a> {
                     frame.area().centered_vertically(Constraint::Length(1)),
                 );
             }
+            Self::Break => {},
         }
     }
 }
