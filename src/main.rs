@@ -23,14 +23,14 @@ fn main() {
 
         term.draw(|frame: &mut Frame| app.render(frame)).unwrap();
 
-        if event::poll(Duration::from_millis(250)).unwrap() {
-            // transition from host -> place ships (pregame) when connection is established
-            if let Application::Host(ref listener) = app {
-                if let Ok((stream, _)) = listener.accept() {
-                    app = Application::place_ships(stream);
-                }
+        // transition from host -> place ships (pregame) when connection is established
+        if let Application::Host(ref listener) = app {
+            if let Ok((stream, _)) = listener.accept() {
+                app = Application::place_ships(stream);
             }
+        }
 
+        if event::poll(Duration::from_millis(250)).unwrap() {
             if let event::Event::Key(key) = event::read().unwrap() {
                 if key.code == KeyCode::Esc {
                     break;
@@ -39,7 +39,7 @@ fn main() {
                     Application::Menu(..) => menu(&mut app, key.code),
                     Application::ConnectToHost(..) => connect_to_host(&mut app, key.code),
                     Application::PlaceShips(..) => place_ships(&mut app, key.code),
-                    Application::Game(..) => {}
+                    Application::Game(..) => game(&mut app, key.code),
                     Application::Help | Application::Host(..) | Application::Break => {}
                 }
             }
@@ -175,4 +175,11 @@ fn place_ships(app: &mut Application, code: KeyCode) {
         }
         Application::PlaceShips(con, placements, ships, grid)
     });
+}
+
+fn game(app: &mut Application, code: KeyCode) {
+    let Application::Game(_board) = app else {
+        unreachable!();
+    };
+    todo!();
 }
