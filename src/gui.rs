@@ -42,85 +42,16 @@ impl<'a> Application<'a> {
         )
     }
     pub fn render(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+        let buf = frame.buffer_mut();
         match self {
-            Self::Menu(list_items, ls, lay) => {
-                let a = lay.areas::<2>(frame.area())[0];
-                let list = List::new(list_items.clone())
-                    .block(
-                        Block::new()
-                            .title(Line::raw("Main Menu").centered())
-                            .borders(Borders::all()),
-                    )
-                    .highlight_style(
-                        Style::new()
-                            .bg(tailwind::SLATE.c800)
-                            .add_modifier(Modifier::BOLD),
-                    );
-
-                frame.render_stateful_widget(list, a, ls)
-            }
-            Self::Host(listener, _turn) => {
-                frame.render_widget(
-                    Paragraph::new("").block(Block::bordered().title("Hosting instance")),
-                    frame.area(),
-                );
-
-                frame.render_widget(
-                    Paragraph::new(format!(
-                        "Waiting for connection on {}",
-                        listener.local_addr().unwrap()
-                    ))
-                    .alignment(ratatui::layout::HorizontalAlignment::Center),
-                    frame.area().centered_vertically(Constraint::Length(1)),
-                );
-            }
-            Self::ConnectToHost(input, cursor, connection) => {
-                let l = Layout::horizontal([
-                    Constraint::Percentage(25),
-                    Constraint::Min(35),
-                    Constraint::Percentage(25),
-                ]);
-                frame.render_widget(
-                    Paragraph::new("").block(Block::bordered().title("Connect to Host")),
-                    frame.area(),
-                );
-                let input_area =
-                    frame.area().layout::<3>(&l)[1].centered_vertically(Constraint::Length(3));
-                frame.render_widget(
-                    Paragraph::new(input.as_str()).block(Block::bordered().title("Peer Address")),
-                    input_area,
-                );
-                frame.render_widget(
-                    Paragraph::new(connection.as_str()),
-                    input_area.offset(Offset::new(1, 3)),
-                );
-                frame.set_cursor_position(Position::new(
-                    input_area.x + *cursor as u16 + 1,
-                    input_area.y + 1,
-                ));
-            }
-            Self::PlaceShips(_stream, ship_placements, _ships, _, _) => {
-                frame.render_widget(
-                    Paragraph::new("").block(Block::bordered().title("Game")),
-                    frame.area(),
-                );
-                frame.render_widget(ship_placements.last().unwrap(), frame.area());
-            }
-            Self::Game(board, player_turn) => {
-                frame.render_widget(&*board, frame.area());
-            }
-            Self::Help => {
-                frame.render_widget(
-                    Paragraph::new("").block(Block::bordered().title("Help")),
-                    frame.area(),
-                );
-                frame.render_widget(
-                    Paragraph::new("HELP GOES HERE")
-                        .alignment(ratatui::layout::HorizontalAlignment::Center),
-                    frame.area().centered_vertically(Constraint::Length(1)),
-                );
-            }
-            Self::Break => {},
+            Application::Menu(..) => render_menu(self, frame),
+            Application::ConnectToHost(..) => render_connect_to_host(self, frame),
+            Application::PlaceShips(..) => render_ship_placement(self, area, buf),
+            Application::Game(..) => render_game(self, area, buf),
+            Application::Help => render_help(frame),
+            Application::Host(..) => render_host(self, frame),
+            Application::Break => {}
         }
     }
 }
@@ -198,94 +129,181 @@ impl ShipPlacement {
     }
 }
 
-impl Widget for &ShipPlacement {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        match (area.width, area.height) {
-            (12.., 12..) => {
-                let space = area.centered(Constraint::Length(10), Constraint::Length(10));
-                Block::new()
-                    .borders(Borders::all())
-                    .title("Place Ship")
-                    .render(
-                        area.centered(Constraint::Length(12), Constraint::Length(12)),
-                        buf,
-                    );
-                for line in 0..10 {
-                    let mut spans = Vec::new();
-                    for col in 0..10 {
-                        let idx = col + line * 10;
-                        let mut colour = tailwind::WHITE;
-                        if self.occupied[idx] {
-                            colour = tailwind::RED.c500;
-                        }
-                        if col == self.pos.0 && line == self.pos.1 {
-                            colour = tailwind::GREEN.c500;
-                        } else if self.inship(col, line) {
-                            colour = tailwind::GREEN.c900;
-                        }
-                        if self.occupied[idx] {
-                            spans.push(Span::raw("X").fg(colour));
-                        } else {
-                            spans.push(Span::raw("•").fg(colour));
-                        }
+fn render_host(app: &mut Application, frame: &mut Frame) {
+    let Application::Host(listener, _turn) = app else {
+        unreachable!();
+    };
+    frame.render_widget(
+        Paragraph::new("").block(Block::bordered().title("Hosting instance")),
+        frame.area(),
+    );
+
+    frame.render_widget(
+        Paragraph::new(format!(
+            "Waiting for connection on {}",
+            listener.local_addr().unwrap()
+        ))
+        .alignment(ratatui::layout::HorizontalAlignment::Center),
+        frame.area().centered_vertically(Constraint::Length(1)),
+    );
+}
+fn render_menu(app: &mut Application, frame: &mut Frame) {
+    let Application::Menu(list_items, ls, lay) = app else {
+        unreachable!();
+    };
+    let area = lay.areas::<2>(frame.area())[0];
+    let list = List::new(list_items.clone())
+        .block(
+            Block::new()
+                .title(Line::raw("Main Menu").centered())
+                .borders(Borders::all()),
+        )
+        .highlight_style(
+            Style::new()
+                .bg(tailwind::SLATE.c800)
+                .add_modifier(Modifier::BOLD),
+        );
+    frame.render_stateful_widget(list, area, ls);
+}
+fn render_help(frame: &mut Frame) {
+    frame.render_widget(
+        Paragraph::new("").block(Block::bordered().title("Help")),
+        frame.area(),
+    );
+    frame.render_widget(
+        Paragraph::new("HELP GOES HERE").alignment(ratatui::layout::HorizontalAlignment::Center),
+        frame.area().centered_vertically(Constraint::Length(1)),
+    );
+}
+
+fn render_connect_to_host(app: &Application, frame: &mut Frame) {
+    let Application::ConnectToHost(input, cursor, connection) = app else {
+        unreachable!();
+    };
+    let l = Layout::horizontal([
+        Constraint::Percentage(25),
+        Constraint::Min(35),
+        Constraint::Percentage(25),
+    ]);
+    frame.render_widget(
+        Paragraph::new("").block(Block::bordered().title("Connect to Host")),
+        frame.area(),
+    );
+    let input_area = frame.area().layout::<3>(&l)[1].centered_vertically(Constraint::Length(3));
+    frame.render_widget(
+        Paragraph::new(input.as_str()).block(Block::bordered().title("Peer Address")),
+        input_area,
+    );
+    frame.render_widget(
+        Paragraph::new(connection.as_str()),
+        input_area.offset(Offset::new(1, 3)),
+    );
+    frame.set_cursor_position(Position::new(
+        input_area.x + *cursor as u16 + 1,
+        input_area.y + 1,
+    ));
+}
+
+fn render_ship_placement(app: &Application, area: Rect, buf: &mut Buffer) {
+    let Application::PlaceShips(_, ship_placements, _, _, _) = app else {
+        unreachable!();
+    };
+
+    Paragraph::new("")
+        .block(Block::bordered().title("Game"))
+        .render(area, buf);
+
+    let ship = ship_placements.last().unwrap();
+
+    match (area.width, area.height) {
+        (12.., 12..) => {
+            let space = area.centered(Constraint::Length(10), Constraint::Length(10));
+            Block::new()
+                .borders(Borders::all())
+                .title("Place Ship")
+                .render(
+                    area.centered(Constraint::Length(12), Constraint::Length(12)),
+                    buf,
+                );
+            for line in 0..10 {
+                let mut spans = Vec::new();
+                for col in 0..10 {
+                    let idx = col + line * 10;
+                    let mut colour = tailwind::WHITE;
+                    if ship.occupied[idx] {
+                        colour = tailwind::RED.c500;
                     }
-                    buf.set_line(space.x, space.y + line as u16, &Line::from(spans), 21);
+                    if col == ship.pos.0 && line == ship.pos.1 {
+                        colour = tailwind::GREEN.c500;
+                    } else if ship.inship(col, line) {
+                        colour = tailwind::GREEN.c900;
+                    }
+                    if ship.occupied[idx] {
+                        spans.push(Span::raw("X").fg(colour));
+                    } else {
+                        spans.push(Span::raw("•").fg(colour));
+                    }
                 }
+                buf.set_line(space.x, space.y + line as u16, &Line::from(spans), 21);
             }
-            _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
         }
+        _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
     }
 }
 
-impl Widget for &Board {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        match (area.width, area.height) {
-            (23.., 14..) => {
-                let space = area.centered(Constraint::Length(21), Constraint::Length(10));
-                // enemy -> you
-                for line in 0..10 {
-                    let mut spans = Vec::new();
-                    for col in 0..10 {
-                        let idx = col + line * 10;
-                        let mut is_ship = false;
-                        if self.enemy_attacks[idx] == Board::HIT {
-                            spans.push(Span::raw("X").fg(tailwind::RED.c500));
-                        } else {
-                            for ship in &self.ships {
-                                if let Some(_) = ship.pos.iter().position(|&i| i == idx) {
-                                    is_ship = true;
-                                    spans.push(Span::raw("X").fg(tailwind::WHITE));
-                                }
-                            }
-                            if !is_ship {
-                                spans.push(Span::raw("•").fg(tailwind::WHITE));
-                            }
-                        }
-                    }
-                    buf.set_line(space.x, space.y + line as u16, &Line::from(spans), 21);
-                }
-
-                // you -> enemy
-                for line in 0..10 {
-                    let mut spans = Vec::new();
-                    for col in 0..10 {
-                        let idx = col + line * 10;
-                        match self.your_attacks[idx] {
-                            1 => {
-                                spans.push(Span::raw("X").fg(tailwind::RED.c500));
-                            }
-                            2 => {
-                                spans.push(Span::raw("#").fg(tailwind::GRAY.c500));
-                            }
-                            _ => {
-                                spans.push(Span::raw("•").fg(tailwind::WHITE));
+fn render_game(app: &Application, area: Rect, buf: &mut Buffer) {
+    let Application::Game(board, turn) = app else {
+        unreachable!();
+    };
+    Paragraph::new("")
+        .block(Block::bordered().title(if *turn { "Your Turn" } else { "Enemy Turn" }))
+        .render(area, buf);
+    match (area.width, area.height) {
+        (23.., 14..) => {
+            let space = area.centered(Constraint::Length(21), Constraint::Length(10));
+            // enemy -> you
+            for line in 0..10 {
+                let mut spans = Vec::new();
+                for col in 0..10 {
+                    let idx = col + line * 10;
+                    let mut is_ship = false;
+                    if board.enemy_attacks[idx] == Board::HIT {
+                        spans.push(Span::raw("X").fg(tailwind::RED.c500));
+                    } else {
+                        for ship in &board.ships {
+                            if let Some(_) = ship.pos.iter().position(|&i| i == idx) {
+                                is_ship = true;
+                                spans.push(Span::raw("X").fg(tailwind::WHITE));
                             }
                         }
+                        if !is_ship {
+                            spans.push(Span::raw("•").fg(tailwind::WHITE));
+                        }
                     }
-                    buf.set_line(space.x + 11, space.y + line as u16, &Line::from(spans), 21);
                 }
+                buf.set_line(space.x, space.y + line as u16, &Line::from(spans), 21);
             }
-            _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
+
+            // you -> enemy
+            for line in 0..10 {
+                let mut spans = Vec::new();
+                for col in 0..10 {
+                    let idx = col + line * 10;
+                    match board.your_attacks[idx] {
+                        1 => {
+                            spans.push(Span::raw("X").fg(tailwind::RED.c500));
+                        }
+                        2 => {
+                            spans.push(Span::raw("#").fg(tailwind::GRAY.c500));
+                        }
+                        _ => {
+                            spans.push(Span::raw("•").fg(tailwind::WHITE));
+                        }
+                    }
+                }
+                buf.set_line(space.x + 11, space.y + line as u16, &Line::from(spans), 21);
+            }
         }
+        _ => buf.set_string(area.x, area.y, "NO SPACE FOR GRID", Style::new().bold()),
     }
 }

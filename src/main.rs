@@ -181,8 +181,8 @@ fn place_ships(app: &mut Application, code: KeyCode) {
     });
 }
 
-fn game(app: &mut Application, code: KeyCode) {
-    let Application::Game(_board, player_turn) = app else {
+fn game(app: &mut Application, _code: KeyCode) {
+    let Application::Game(_board, _turn) = app else {
         unreachable!();
     };
     todo!();
