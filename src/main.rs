@@ -2,6 +2,7 @@
 use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     time::Duration,
+    io::{Read, Write},
 };
 
 use crossterm::event::{self, KeyCode};
@@ -24,9 +25,10 @@ fn main() {
         term.draw(|frame: &mut Frame| app.render(frame)).unwrap();
 
         // transition from host -> place ships (pregame) when connection is established
-        if let Application::Host(ref listener) = app {
-            if let Ok((stream, _)) = listener.accept() {
-                app = Application::place_ships(stream);
+        if let Application::Host(ref listener, first) = app {
+            if let Ok((mut stream, _)) = listener.accept() {
+                stream.write_all(&[u8::from(!first)]).expect("failed to send move to server");
+                app = Application::place_ships(stream, first);
             }
         }
 
@@ -61,7 +63,8 @@ fn menu(app: &mut Application, code: KeyCode) {
             listener
                 .set_nonblocking(true)
                 .expect("Failed to set nonblocking mode on TcpListener");
-            *app = Application::Host(listener);
+            let first = rand::random_bool(0.5);
+            *app = Application::Host(listener, first);
         }
         KeyCode::Enter if matches!(ls.selected(), Some(1)) => {
             *app = Application::ConnectToHost(String::new(), 0, String::new());
@@ -110,8 +113,9 @@ fn connect_to_host(app: &mut Application, code: KeyCode) {
             if let Ok(addr) = SocketAddr::from_str(&s) {
                 *connection = format!("Attempting to connect to: {}", addr);
                 match TcpStream::connect(addr) {
-                    Ok(con) => {
-                        *app = Application::place_ships(con);
+                    Ok(mut con) => {
+                        let first = con.read_array::<1>().expect("Failed to get first move from host")[0] != 0;
+                        *app = Application::place_ships(con, first);
                     }
                     Err(e) => {
                         *connection = format!("Failed to connect to: {} - {e}", addr);
@@ -127,7 +131,7 @@ fn connect_to_host(app: &mut Application, code: KeyCode) {
 
 fn place_ships(app: &mut Application, code: KeyCode) {
     take_mut::take(app, |app| {
-        let Application::PlaceShips(con, mut placements, mut ships, mut grid) = app else {
+        let Application::PlaceShips(con, mut placements, mut ships, mut grid, turn) = app else {
             unreachable!();
         };
         let ship = placements.last_mut().unwrap();
@@ -165,7 +169,7 @@ fn place_ships(app: &mut Application, code: KeyCode) {
                                 .collect::<Vec<Ship>>()
                                 .try_into()
                                 .unwrap(),
-                        ));
+                        ), turn);
                     } else {
                         placements.last_mut().unwrap().occupied = grid.clone();
                     }
@@ -173,12 +177,12 @@ fn place_ships(app: &mut Application, code: KeyCode) {
             }
             _ => {}
         }
-        Application::PlaceShips(con, placements, ships, grid)
+        Application::PlaceShips(con, placements, ships, grid, turn)
     });
 }
 
 fn game(app: &mut Application, code: KeyCode) {
-    let Application::Game(_board) = app else {
+    let Application::Game(_board, player_turn) = app else {
         unreachable!();
     };
     todo!();

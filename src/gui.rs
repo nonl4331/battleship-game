@@ -12,10 +12,10 @@ use ratatui::{
 use crate::{Board, Ship};
 pub enum Application<'a> {
     Menu(Vec<ListItem<'a>>, ListState, Layout),
-    Host(TcpListener),
+    Host(TcpListener, bool),
     ConnectToHost(String, usize, String),
-    PlaceShips(TcpStream, Vec<ShipPlacement>, Vec<Ship>, [bool; 100]),
-    Game(Board),
+    PlaceShips(TcpStream, Vec<ShipPlacement>, Vec<Ship>, [bool; 100], bool),
+    Game(Board, bool),
     Help,
     Break,
 }
@@ -59,7 +59,7 @@ impl<'a> Application<'a> {
 
                 frame.render_stateful_widget(list, a, ls)
             }
-            Self::Host(listener) => {
+            Self::Host(listener, _turn) => {
                 frame.render_widget(
                     Paragraph::new("").block(Block::bordered().title("Hosting instance")),
                     frame.area(),
@@ -99,14 +99,14 @@ impl<'a> Application<'a> {
                     input_area.y + 1,
                 ));
             }
-            Self::PlaceShips(_stream, ship_placements, _ships, _) => {
+            Self::PlaceShips(_stream, ship_placements, _ships, _, _) => {
                 frame.render_widget(
                     Paragraph::new("").block(Block::bordered().title("Game")),
                     frame.area(),
                 );
                 frame.render_widget(ship_placements.last().unwrap(), frame.area());
             }
-            Self::Game(board) => {
+            Self::Game(board, player_turn) => {
                 frame.render_widget(&*board, frame.area());
             }
             Self::Help => {
@@ -126,7 +126,7 @@ impl<'a> Application<'a> {
 }
 
 impl<'a> Application<'a> {
-    pub fn place_ships(con: TcpStream) -> Self {
+    pub fn place_ships(con: TcpStream, turn: bool) -> Self {
         Self::PlaceShips(
             con,
             vec![
@@ -138,6 +138,7 @@ impl<'a> Application<'a> {
             ],
             Vec::new(),
             [false; 100],
+            turn,
         )
     }
 }
