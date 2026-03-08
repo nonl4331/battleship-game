@@ -15,7 +15,7 @@ pub struct Ship {
 
 impl Ship {
     const HIT: usize = usize::MAX;
-    fn sunk(&self) -> bool {
+    pub fn sunk(&self) -> bool {
         self.pos.iter().all(|v| *v == Self::HIT)
     }
     fn intersects_ship(&self, ship: &Self) -> bool {
@@ -48,7 +48,7 @@ pub struct Board {
     pub your_attacks: [u8; 100],
     pub enemy_attacks: [u8; 100],
     pub pending_attack: (u8, u8),
-    con: TcpStream,
+    pub con: TcpStream,
 }
 
 impl Board {

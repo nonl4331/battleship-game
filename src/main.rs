@@ -1,8 +1,8 @@
 #![feature(read_array)]
 use std::{
+    io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     time::Duration,
-    io::{Read, Write},
 };
 
 use crossterm::event::{self, KeyCode};
@@ -27,7 +27,9 @@ fn main() {
         // transition from host -> place ships (pregame) when connection is established
         if let Application::Host(ref listener, first) = app {
             if let Ok((mut stream, _)) = listener.accept() {
-                stream.write_all(&[u8::from(!first)]).expect("failed to send move to server");
+                stream
+                    .write_all(&[u8::from(!first)])
+                    .expect("failed to send move to server");
                 app = Application::place_ships(stream, first);
             }
         }
@@ -114,7 +116,10 @@ fn connect_to_host(app: &mut Application, code: KeyCode) {
                 *connection = format!("Attempting to connect to: {}", addr);
                 match TcpStream::connect(addr) {
                     Ok(mut con) => {
-                        let first = con.read_array::<1>().expect("Failed to get first move from host")[0] != 0;
+                        let first = con
+                            .read_array::<1>()
+                            .expect("Failed to get first move from host")[0]
+                            != 0;
                         *app = Application::place_ships(con, first);
                     }
                     Err(e) => {
@@ -161,15 +166,18 @@ fn place_ships(app: &mut Application, code: KeyCode) {
                         panic!("{} | {}", ships.len(), placements.len());
                     };
                     if placements.is_empty() {
-                        return Application::Game(Board::from_con_ships(
-                            con,
-                            ships
-                                .iter()
-                                .cloned()
-                                .collect::<Vec<Ship>>()
-                                .try_into()
-                                .unwrap(),
-                        ), turn);
+                        return Application::Game(
+                            Board::from_con_ships(
+                                con,
+                                ships
+                                    .iter()
+                                    .cloned()
+                                    .collect::<Vec<Ship>>()
+                                    .try_into()
+                                    .unwrap(),
+                            ),
+                            turn,
+                        );
                     } else {
                         placements.last_mut().unwrap().occupied = grid.clone();
                     }
@@ -182,26 +190,75 @@ fn place_ships(app: &mut Application, code: KeyCode) {
 }
 
 fn game(app: &mut Application, code: KeyCode) {
-    let Application::Game(board, _turn) = app else {
+    let Application::Game(board, turn) = app else {
         unreachable!();
     };
 
-    if *_turn {
+    // TODO: MOVE RECIEVE TO NON IO POLLING
+    if *turn {
         match code {
             KeyCode::Down if board.pending_attack.1 < 9 => {
                 board.pending_attack.1 += 1;
-            },
+            }
             KeyCode::Up if board.pending_attack.1 > 0 => {
                 board.pending_attack.1 -= 1;
-            },
+            }
             KeyCode::Right if board.pending_attack.0 < 9 => {
                 board.pending_attack.0 += 1;
-            },
+            }
             KeyCode::Left if board.pending_attack.0 > 0 => {
                 board.pending_attack.0 -= 1;
-            },
-            _ => {},
+            }
+            KeyCode::Enter
+                if board.your_attacks
+                    [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize]
+                    == 0 =>
+            {
+                board
+                    .con
+                    .write_all(&[board.pending_attack.0, board.pending_attack.1])
+                    .unwrap();
+                *turn = !*turn;
+                // read result
+                let status: [u8; 1] = board.con.read_array().unwrap();
+                let status = status[0];
+                if status == 0 {
+                    board.your_attacks
+                        [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize] = 2;
+                } else if status != 4 {
+                    board.your_attacks
+                        [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize] = 1;
+                } else {
+                    panic!("WIN");
+                }
+            }
+            _ => {}
+        }
+    } else {
+        let attack: [u8; 2] = board.con.read_array().unwrap();
+        let idx = (attack[0] + 10 * attack[1]) as usize;
+
+        let mut hit = false;
+        let mut sunk = false;
+        for ship in &mut board.ships {
+            if let Some(i) = ship.pos.iter().position(|&i| i == idx) {
+                ship.pos[i] = usize::MAX;
+                hit = true;
+                sunk = ship.sunk();
+                break;
+            }
         }
 
+        if sunk && board.ships.iter().all(Ship::sunk) {
+            board.con.write(&[4]).unwrap();
+            panic!("LOSS");
+        } else if hit {
+            board.con.write_all(&[1]).unwrap();
+            board.enemy_attacks[idx] = Board::HIT;
+        } else {
+            board.con.write_all(&[0]).unwrap();
+            board.enemy_attacks[idx] = Board::MISS;
+        }
+        *turn = !*turn;
     }
 }
