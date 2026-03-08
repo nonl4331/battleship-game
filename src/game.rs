@@ -47,7 +47,7 @@ pub struct Board {
     pub ships: [Ship; 5],
     pub your_attacks: [u8; 100],
     pub enemy_attacks: [u8; 100],
-    pending_attack: (u8, u8),
+    pub pending_attack: (u8, u8),
     con: TcpStream,
 }
 

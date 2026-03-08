@@ -181,9 +181,27 @@ fn place_ships(app: &mut Application, code: KeyCode) {
     });
 }
 
-fn game(app: &mut Application, _code: KeyCode) {
-    let Application::Game(_board, _turn) = app else {
+fn game(app: &mut Application, code: KeyCode) {
+    let Application::Game(board, _turn) = app else {
         unreachable!();
     };
-    todo!();
+
+    if *_turn {
+        match code {
+            KeyCode::Down if board.pending_attack.1 < 9 => {
+                board.pending_attack.1 += 1;
+            },
+            KeyCode::Up if board.pending_attack.1 > 0 => {
+                board.pending_attack.1 -= 1;
+            },
+            KeyCode::Right if board.pending_attack.0 < 9 => {
+                board.pending_attack.0 += 1;
+            },
+            KeyCode::Left if board.pending_attack.0 > 0 => {
+                board.pending_attack.0 -= 1;
+            },
+            _ => {},
+        }
+
+    }
 }

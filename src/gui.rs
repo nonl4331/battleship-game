@@ -10,6 +10,7 @@ use ratatui::{
 };
 
 use crate::{Board, Ship};
+#[derive(Debug)]
 pub enum Application<'a> {
     Menu(Vec<ListItem<'a>>, ListState, Layout),
     Host(TcpListener, bool),
@@ -74,6 +75,7 @@ impl<'a> Application<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct ShipPlacement {
     pub pos: (usize, usize),
     pub length: usize,
@@ -289,15 +291,29 @@ fn render_game(app: &Application, area: Rect, buf: &mut Buffer) {
                 let mut spans = Vec::new();
                 for col in 0..10 {
                     let idx = col + line * 10;
-                    match board.your_attacks[idx] {
-                        1 => {
-                            spans.push(Span::raw("X").fg(tailwind::RED.c500));
+                    if *turn && (col == board.pending_attack.0 && line == board.pending_attack.1) {
+                        match board.your_attacks[idx as usize] {
+                            1 => {
+                                spans.push(Span::raw("X").fg(tailwind::RED.c900));
+                            }
+                            2 => {
+                                spans.push(Span::raw("#").fg(tailwind::GRAY.c900));
+                            }
+                            _ => {
+                                spans.push(Span::raw("O").fg(tailwind::GREEN.c500));
+                            }
                         }
-                        2 => {
-                            spans.push(Span::raw("#").fg(tailwind::GRAY.c500));
-                        }
-                        _ => {
-                            spans.push(Span::raw("•").fg(tailwind::WHITE));
+                    } else {
+                        match board.your_attacks[idx as usize] {
+                            1 => {
+                                spans.push(Span::raw("X").fg(tailwind::RED.c500));
+                            }
+                            2 => {
+                                spans.push(Span::raw("#").fg(tailwind::GRAY.c500));
+                            }
+                            _ => {
+                                spans.push(Span::raw("•").fg(tailwind::WHITE));
+                            }
                         }
                     }
                 }
