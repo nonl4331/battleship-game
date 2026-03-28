@@ -16,9 +16,16 @@ pub enum Application<'a> {
     Host(TcpListener, bool),
     ConnectToHost(String, usize, String),
     PlaceShips(TcpStream, Vec<ShipPlacement>, Vec<Ship>, [bool; 100], bool),
-    Game(Board, bool),
+    Game(Board, TurnState),
     Help,
     Break,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum TurnState {
+    OurTurn,
+    WaitingReply,
+    EnemyTurn,
 }
 
 impl<'a> Application<'a> {
@@ -258,7 +265,11 @@ fn render_game(app: &Application, area: Rect, buf: &mut Buffer) {
         unreachable!();
     };
     Paragraph::new("")
-        .block(Block::bordered().title(if *turn { "Your Turn" } else { "Enemy Turn" }))
+        .block(Block::bordered().title(match turn {
+            TurnState::OurTurn => "Your Turn",
+            TurnState::WaitingReply => "Waiting",
+            TurnState::EnemyTurn => "Opponent Turn",
+        }))
         .render(area, buf);
     match (area.width, area.height) {
         (23.., 14..) => {
@@ -291,7 +302,7 @@ fn render_game(app: &Application, area: Rect, buf: &mut Buffer) {
                 let mut spans = Vec::new();
                 for col in 0..10 {
                     let idx = col + line * 10;
-                    if *turn && (col == board.pending_attack.0 && line == board.pending_attack.1) {
+                    if *turn == TurnState::OurTurn && (col == board.pending_attack.0 && line == board.pending_attack.1) {
                         match board.your_attacks[idx as usize] {
                             1 => {
                                 spans.push(Span::raw("X").fg(tailwind::RED.c400));

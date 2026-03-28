@@ -1,6 +1,6 @@
 #![feature(read_array)]
 use std::{
-    io::{Read, Write},
+    io::{self, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     time::Duration,
 };
@@ -12,6 +12,8 @@ mod game;
 mod gui;
 use game::*;
 use gui::Application;
+
+use crate::gui::TurnState;
 
 fn main() {
     let mut term = ratatui::init();
@@ -176,7 +178,11 @@ fn place_ships(app: &mut Application, code: KeyCode) {
                                     .try_into()
                                     .unwrap(),
                             ),
-                            turn,
+                            if turn {
+                                TurnState::OurTurn
+                            } else {
+                                TurnState::EnemyTurn
+                            },
                         );
                     } else {
                         placements.last_mut().unwrap().occupied = grid.clone();
@@ -194,21 +200,26 @@ fn game(app: &mut Application, code: KeyCode) {
         unreachable!();
     };
 
+    board.con.set_nonblocking(true).unwrap();
+
     // TODO: MOVE RECIEVE TO NON IO POLLING
-    if *turn {
-        match code {
-            KeyCode::Down if board.pending_attack.1 < 9 => {
-                board.pending_attack.1 += 1;
-            }
-            KeyCode::Up if board.pending_attack.1 > 0 => {
-                board.pending_attack.1 -= 1;
-            }
-            KeyCode::Right if board.pending_attack.0 < 9 => {
-                board.pending_attack.0 += 1;
-            }
-            KeyCode::Left if board.pending_attack.0 > 0 => {
-                board.pending_attack.0 -= 1;
-            }
+    match code {
+        KeyCode::Down if board.pending_attack.1 < 9 => {
+            board.pending_attack.1 += 1;
+        }
+        KeyCode::Up if board.pending_attack.1 > 0 => {
+            board.pending_attack.1 -= 1;
+        }
+        KeyCode::Right if board.pending_attack.0 < 9 => {
+            board.pending_attack.0 += 1;
+        }
+        KeyCode::Left if board.pending_attack.0 > 0 => {
+            board.pending_attack.0 -= 1;
+        }
+        _ => {}
+    }
+    match *turn {
+        TurnState::OurTurn => match code {
             KeyCode::Enter
                 if board.your_attacks
                     [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize]
@@ -218,47 +229,58 @@ fn game(app: &mut Application, code: KeyCode) {
                     .con
                     .write_all(&[board.pending_attack.0, board.pending_attack.1])
                     .unwrap();
-                *turn = !*turn;
-                // read result
-                let status: [u8; 1] = board.con.read_array().unwrap();
-                let status = status[0];
-                if status == 0 {
-                    board.your_attacks
-                        [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize] = 2;
-                } else if status != 4 {
-                    board.your_attacks
-                        [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize] = 1;
-                } else {
-                    panic!("WIN");
-                }
+                *turn = TurnState::WaitingReply;
             }
             _ => {}
-        }
-    } else {
-        let attack: [u8; 2] = board.con.read_array().unwrap();
-        let idx = (attack[0] + 10 * attack[1]) as usize;
-
-        let mut hit = false;
-        let mut sunk = false;
-        for ship in &mut board.ships {
-            if let Some(i) = ship.pos.iter().position(|&i| i == idx) {
-                ship.pos[i] = usize::MAX;
-                hit = true;
-                sunk = ship.sunk();
-                break;
+        },
+        TurnState::WaitingReply => {
+            let status: [u8; 1] = match board.con.read_array().map_err(|e| e.kind()) {
+                Ok(v) => v,
+                Err(io::ErrorKind::WouldBlock) => return,
+                Err(e) => panic!("{e}"),
+            };
+            let status = status[0];
+            if status == 0 {
+                board.your_attacks
+                    [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize] = 2;
+            } else if status != 4 {
+                board.your_attacks
+                    [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize] = 1;
+            } else {
+                panic!("WIN");
             }
+            *turn = TurnState::EnemyTurn;
         }
+        TurnState::EnemyTurn => {
+            let attack: [u8; 2] = match board.con.read_array().map_err(|e| e.kind()) {
+                Ok(v) => v,
+                Err(io::ErrorKind::WouldBlock) => return,
+                Err(e) => panic!("{e}"),
+            };
+            let idx = (attack[0] + 10 * attack[1]) as usize;
 
-        if sunk && board.ships.iter().all(Ship::sunk) {
-            board.con.write(&[4]).unwrap();
-            panic!("LOSS");
-        } else if hit {
-            board.con.write_all(&[1]).unwrap();
-            board.enemy_attacks[idx] = Board::HIT;
-        } else {
-            board.con.write_all(&[0]).unwrap();
-            board.enemy_attacks[idx] = Board::MISS;
+            let mut hit = false;
+            let mut sunk = false;
+            for ship in &mut board.ships {
+                if let Some(i) = ship.pos.iter().position(|&i| i == idx) {
+                    ship.pos[i] = usize::MAX;
+                    hit = true;
+                    sunk = ship.sunk();
+                    break;
+                }
+            }
+
+            if sunk && board.ships.iter().all(Ship::sunk) {
+                board.con.write(&[4]).unwrap();
+                panic!("LOSS");
+            } else if hit {
+                board.con.write_all(&[1]).unwrap();
+                board.enemy_attacks[idx] = Board::HIT;
+            } else {
+                board.con.write_all(&[0]).unwrap();
+                board.enemy_attacks[idx] = Board::MISS;
+            }
+            *turn = TurnState::OurTurn;
         }
-        *turn = !*turn;
     }
 }
