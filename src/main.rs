@@ -10,7 +10,7 @@ use ratatui::Frame;
 
 mod game;
 mod gui;
-use game::*;
+use game::{Board, Ship};
 use gui::Application;
 
 use crate::gui::TurnState;
@@ -103,15 +103,13 @@ fn connect_to_host(app: &mut Application, code: Option<KeyCode>) {
             *cursor = cursor.saturating_sub(1);
         }
         KeyCode::Right => *cursor = (*cursor + 1).min(s.chars().count()),
-        KeyCode::Backspace => {
-            if *cursor != 0 {
-                *s = s
-                    .chars()
-                    .take(*cursor - 1)
-                    .chain(s.chars().skip(*cursor))
-                    .collect();
-                *cursor = cursor.saturating_sub(1);
-            }
+        KeyCode::Backspace if *cursor != 0 => {
+            *s = s
+                .chars()
+                .take(*cursor - 1)
+                .chain(s.chars().skip(*cursor))
+                .collect();
+            *cursor = cursor.saturating_sub(1);
         }
         KeyCode::Char(v) => {
             s.insert(
