@@ -1,12 +1,4 @@
-use std::{
-    net::{TcpStream},
-};
-
-#[derive(Debug)]
-pub enum Status {
-    Won,
-    Loss,
-}
+use std::net::TcpStream;
 
 #[derive(Debug, Clone)]
 pub struct Ship {
@@ -17,14 +9,6 @@ impl Ship {
     const HIT: usize = usize::MAX;
     pub fn sunk(&self) -> bool {
         self.pos.iter().all(|v| *v == Self::HIT)
-    }
-    fn intersects_ship(&self, ship: &Self) -> bool {
-        for pos in &ship.pos {
-            if self.pos.contains(pos) {
-                return true;
-            }
-        }
-        false
     }
     pub fn create_with_pos_and_rotation(x: usize, y: usize, len: usize, down: bool) -> Self {
         let mut pos = Vec::new();
@@ -53,7 +37,13 @@ pub struct Board {
 
 impl Board {
     pub fn from_con_ships(con: TcpStream, ships: [Ship; 5]) -> Self {
-        Self { ships, con, your_attacks: [0; 100], enemy_attacks: [0; 100], pending_attack: (0, 0) }
+        Self {
+            ships,
+            con,
+            your_attacks: [0; 100],
+            enemy_attacks: [0; 100],
+            pending_attack: (0, 0),
+        }
     }
     pub const MISS: u8 = 0;
     pub const HIT: u8 = 1;

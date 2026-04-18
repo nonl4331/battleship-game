@@ -27,36 +27,43 @@ fn main() {
         term.draw(|frame: &mut Frame| app.render(frame)).unwrap();
 
         // transition from host -> place ships (pregame) when connection is established
-        if let Application::Host(ref listener, first) = app {
-            if let Ok((mut stream, _)) = listener.accept() {
-                stream
-                    .write_all(&[u8::from(!first)])
-                    .expect("failed to send move to server");
-                app = Application::place_ships(stream, first);
-            }
+        if let Application::Host(ref listener, first) = app
+            && let Ok((mut stream, _)) = listener.accept()
+        {
+            stream
+                .write_all(&[u8::from(!first)])
+                .expect("failed to send move to server");
+            app = Application::place_ships(stream, first);
         }
 
-        if event::poll(Duration::from_millis(250)).unwrap() {
-            if let event::Event::Key(key) = event::read().unwrap() {
-                if key.code == KeyCode::Esc {
-                    break;
-                }
-                match app {
-                    Application::Menu(..) => menu(&mut app, key.code),
-                    Application::ConnectToHost(..) => connect_to_host(&mut app, key.code),
-                    Application::PlaceShips(..) => place_ships(&mut app, key.code),
-                    Application::Game(..) => game(&mut app, key.code),
-                    Application::Help | Application::Host(..) | Application::Break => {}
-                }
+        let mut keycode = None;
+
+        if event::poll(Duration::from_millis(250)).unwrap()
+            && let event::Event::Key(key) = event::read().unwrap()
+        {
+            if key.code == KeyCode::Esc {
+                break;
             }
+            keycode = Some(key.code);
+        }
+
+        match app {
+            Application::Menu(..) => menu(&mut app, keycode),
+            Application::ConnectToHost(..) => connect_to_host(&mut app, keycode),
+            Application::PlaceShips(..) => place_ships(&mut app, keycode),
+            Application::Game(..) => game(&mut app, keycode),
+            Application::Help | Application::Host(..) | Application::Break => {}
         }
     }
     ratatui::restore();
 }
 
-fn menu(app: &mut Application, code: KeyCode) {
+fn menu(app: &mut Application, code: Option<KeyCode>) {
     let Application::Menu(_, ls, _) = app else {
         unreachable!();
+    };
+    let Some(code) = code else {
+        return;
     };
     match code {
         KeyCode::Down => ls.select_next(),
@@ -83,10 +90,13 @@ fn menu(app: &mut Application, code: KeyCode) {
     }
 }
 
-fn connect_to_host(app: &mut Application, code: KeyCode) {
+fn connect_to_host(app: &mut Application, code: Option<KeyCode>) {
     use std::str::FromStr;
     let Application::ConnectToHost(s, cursor, connection) = app else {
         unreachable!();
+    };
+    let Some(code) = code else {
+        return;
     };
     match code {
         KeyCode::Left => {
@@ -114,8 +124,8 @@ fn connect_to_host(app: &mut Application, code: KeyCode) {
             *cursor = (*cursor + 1).min(s.chars().count());
         }
         KeyCode::Enter if !s.is_empty() => {
-            if let Ok(addr) = SocketAddr::from_str(&s) {
-                *connection = format!("Attempting to connect to: {}", addr);
+            if let Ok(addr) = SocketAddr::from_str(s) {
+                *connection = format!("Attempting to connect to: {addr}");
                 match TcpStream::connect(addr) {
                     Ok(mut con) => {
                         let first = con
@@ -125,18 +135,21 @@ fn connect_to_host(app: &mut Application, code: KeyCode) {
                         *app = Application::place_ships(con, first);
                     }
                     Err(e) => {
-                        *connection = format!("Failed to connect to: {} - {e}", addr);
+                        *connection = format!("Failed to connect to: {addr} - {e}");
                     }
                 }
             } else {
-                *connection = format!("Invalid address!");
+                *connection = "Invalid address!".to_string();
             }
         }
         _ => {}
     }
 }
 
-fn place_ships(app: &mut Application, code: KeyCode) {
+fn place_ships(app: &mut Application, code: Option<KeyCode>) {
+    let Some(code) = code else {
+        return;
+    };
     take_mut::take(app, |app| {
         let Application::PlaceShips(con, mut placements, mut ships, mut grid, turn) = app else {
             unreachable!();
@@ -155,38 +168,30 @@ fn place_ships(app: &mut Application, code: KeyCode) {
             KeyCode::Right if ship.valid(ship.pos.0 + 1, ship.pos.1, ship.rotated) => {
                 ship.pos.0 += 1;
             }
-            KeyCode::Char('r') | KeyCode::Char('R')
-                if ship.valid(ship.pos.0, ship.pos.1, !ship.rotated) =>
-            {
+            KeyCode::Char('r' | 'R') if ship.valid(ship.pos.0, ship.pos.1, !ship.rotated) => {
                 ship.rotated = !ship.rotated;
             }
             KeyCode::Enter => {
                 if let Some(ship) = ship.create_ship(&mut grid) {
                     ships.push(ship);
                     placements.pop();
-                    if ships.len() != 5 - placements.len() {
-                        panic!("{} | {}", ships.len(), placements.len());
-                    };
+                    assert!(
+                        ships.len() == 5 - placements.len(),
+                        "{} | {}",
+                        ships.len(),
+                        placements.len()
+                    );
                     if placements.is_empty() {
                         return Application::Game(
-                            Board::from_con_ships(
-                                con,
-                                ships
-                                    .iter()
-                                    .cloned()
-                                    .collect::<Vec<Ship>>()
-                                    .try_into()
-                                    .unwrap(),
-                            ),
+                            Board::from_con_ships(con, ships.clone().try_into().unwrap()),
                             if turn {
                                 TurnState::OurTurn
                             } else {
                                 TurnState::EnemyTurn
                             },
                         );
-                    } else {
-                        placements.last_mut().unwrap().occupied = grid.clone();
                     }
+                    placements.last_mut().unwrap().occupied = grid;
                 }
             }
             _ => {}
@@ -195,7 +200,7 @@ fn place_ships(app: &mut Application, code: KeyCode) {
     });
 }
 
-fn game(app: &mut Application, code: KeyCode) {
+fn game(app: &mut Application, code: Option<KeyCode>) {
     let Application::Game(board, turn) = app else {
         unreachable!();
     };
@@ -204,23 +209,23 @@ fn game(app: &mut Application, code: KeyCode) {
 
     // TODO: MOVE RECIEVE TO NON IO POLLING
     match code {
-        KeyCode::Down if board.pending_attack.1 < 9 => {
+        Some(KeyCode::Down) if board.pending_attack.1 < 9 => {
             board.pending_attack.1 += 1;
         }
-        KeyCode::Up if board.pending_attack.1 > 0 => {
+        Some(KeyCode::Up) if board.pending_attack.1 > 0 => {
             board.pending_attack.1 -= 1;
         }
-        KeyCode::Right if board.pending_attack.0 < 9 => {
+        Some(KeyCode::Right) if board.pending_attack.0 < 9 => {
             board.pending_attack.0 += 1;
         }
-        KeyCode::Left if board.pending_attack.0 > 0 => {
+        Some(KeyCode::Left) if board.pending_attack.0 > 0 => {
             board.pending_attack.0 -= 1;
         }
         _ => {}
     }
     match *turn {
         TurnState::OurTurn => match code {
-            KeyCode::Enter
+            Some(KeyCode::Enter)
                 if board.your_attacks
                     [(board.pending_attack.0 + board.pending_attack.1 * 10) as usize]
                     == 0 =>
@@ -271,7 +276,7 @@ fn game(app: &mut Application, code: KeyCode) {
             }
 
             if sunk && board.ships.iter().all(Ship::sunk) {
-                board.con.write(&[4]).unwrap();
+                board.con.write_all(&[4]).unwrap();
                 panic!("LOSS");
             } else if hit {
                 board.con.write_all(&[1]).unwrap();

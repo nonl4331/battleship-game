@@ -28,7 +28,7 @@ pub enum TurnState {
     EnemyTurn,
 }
 
-impl<'a> Application<'a> {
+impl Application<'_> {
     pub fn new() -> Self {
         use ratatui::prelude::Stylize;
         let list_items = ["Host Game", "Join Game", "Help", "Exit"]
@@ -64,7 +64,7 @@ impl<'a> Application<'a> {
     }
 }
 
-impl<'a> Application<'a> {
+impl Application<'_> {
     pub fn place_ships(con: TcpStream, turn: bool) -> Self {
         Self::PlaceShips(
             con,
@@ -129,12 +129,12 @@ impl ShipPlacement {
                 *e = true;
             }
         }
-        return Some(Ship::create_with_pos_and_rotation(
+        Some(Ship::create_with_pos_and_rotation(
             self.pos.0,
             self.pos.1,
             self.length,
             self.rotated,
-        ));
+        ))
     }
 }
 
@@ -284,7 +284,7 @@ fn render_game(app: &Application, area: Rect, buf: &mut Buffer) {
                         spans.push(Span::raw("X").fg(tailwind::RED.c500));
                     } else {
                         for ship in &board.ships {
-                            if let Some(_) = ship.pos.iter().position(|&i| i == idx) {
+                            if ship.pos.iter().position(|&i| i == idx).is_some() {
                                 is_ship = true;
                                 spans.push(Span::raw("X").fg(tailwind::WHITE));
                             }
@@ -302,12 +302,11 @@ fn render_game(app: &Application, area: Rect, buf: &mut Buffer) {
                 let mut spans = Vec::new();
                 for col in 0..10 {
                     let idx = col + line * 10;
-                    if *turn == TurnState::OurTurn && (col == board.pending_attack.0 && line == board.pending_attack.1) {
+                    if *turn == TurnState::OurTurn
+                        && (col == board.pending_attack.0 && line == board.pending_attack.1)
+                    {
                         match board.your_attacks[idx as usize] {
-                            1 => {
-                                spans.push(Span::raw("X").fg(tailwind::RED.c400));
-                            }
-                            2 => {
+                            1 | 2 => {
                                 spans.push(Span::raw("X").fg(tailwind::RED.c400));
                             }
                             _ => {
