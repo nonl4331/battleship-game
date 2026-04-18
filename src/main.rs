@@ -207,7 +207,6 @@ fn game(app: &mut Application, code: Option<KeyCode>) {
 
     board.con.set_nonblocking(true).unwrap();
 
-    // TODO: MOVE RECIEVE TO NON IO POLLING
     match code {
         Some(KeyCode::Down) if board.pending_attack.1 < 9 => {
             board.pending_attack.1 += 1;
